@@ -1,4 +1,4 @@
-"""Package version of the Alzheimer EEG ResNet notebook."""
+"""Package version of the Alzheimer EEG notebook workflow."""
 
 __all__ = [
     "__version__",

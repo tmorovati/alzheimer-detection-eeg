@@ -11,6 +11,78 @@ from keras.callbacks import EarlyStopping, ModelCheckpoint
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 
 from .config import DEFAULT_WORKING_DIR
+from .dataset import extract_numeric_part
+
+
+def _image_level_metrics(labels, predictions):
+    labels = np.asarray(labels).reshape(-1)
+    predictions = np.asarray(predictions).reshape(-1)
+    return {
+        "accuracy": accuracy_score(labels, predictions),
+        "precision": precision_score(labels, predictions, zero_division=0),
+        "recall": recall_score(labels, predictions, zero_division=0),
+        "f1": f1_score(labels, predictions, zero_division=0),
+    }
+
+
+def _subject_level_metrics(model, series, subjects, image_counts_per_subject):
+    print("\nPredictions for Each Subject's Images:")
+    start_idx = 0
+    predicted_subjects = []
+    groundtruth_subjects = []
+
+    for subject_folder, num_images in zip(subjects, image_counts_per_subject):
+        end_idx = start_idx + num_images
+        subject_images = series[start_idx:end_idx]
+        subject_predictions = (model.predict(subject_images, verbose=0) > 0.5).astype(int).reshape(-1)
+        ad_count = int(np.sum(subject_predictions == 0))
+        hc_count = int(np.sum(subject_predictions == 1))
+        subject_num = extract_numeric_part(os.path.basename(subject_folder))
+
+        print(f"Subject {subject_num} ({subject_folder}):")
+        print(f"AD count: {ad_count}, HC count: {hc_count}")
+
+        groundtruth_subjects.append(0 if subject_num < 37 else 1)
+        predicted_subjects.append(0 if ad_count > hc_count else 1)
+        start_idx = end_idx
+
+    metrics = _image_level_metrics(groundtruth_subjects, predicted_subjects)
+    return metrics, groundtruth_subjects, predicted_subjects
+
+
+def _plot_history(history, title_suffix):
+    epochs = range(1, len(history["loss"]) + 1)
+
+    plt.figure(figsize=(12, 5))
+
+    plt.subplot(1, 2, 1)
+    plt.plot(epochs, history["accuracy"], label="Training Accuracy", marker="o")
+    plt.plot(epochs, history["val_accuracy"], label="Validation Accuracy", marker="o")
+    plt.title(f"Training and Validation Accuracy {title_suffix}")
+    plt.xlabel("Epochs")
+    plt.ylabel("Accuracy")
+    plt.legend()
+
+    plt.subplot(1, 2, 2)
+    plt.plot(epochs, history["loss"], label="Training Loss", marker="o")
+    plt.plot(epochs, history["val_loss"], label="Validation Loss", marker="o")
+    plt.title(f"Training and Validation Loss {title_suffix}")
+    plt.xlabel("Epochs")
+    plt.ylabel("Loss")
+    plt.legend()
+
+    plt.tight_layout()
+    plt.show()
+
+
+def _print_metric_summary(prefix, metric_lists):
+    for metric_name, values in metric_lists.items():
+        print(f"\nmean for {prefix}, {metric_name} {np.mean(values)} and std is {np.std(values)}")
+
+
+def _safe_model_name(model_name):
+    safe_name = "".join(ch if ch.isalnum() else "_" for ch in str(model_name).lower()).strip("_")
+    return safe_name or "model"
 
 
 def run_single_training(
@@ -25,6 +97,7 @@ def run_single_training(
     test_image_counts_per_subject,
     working_dir=DEFAULT_WORKING_DIR,
     sleep_seconds=30,
+    model_name="model",
 ):
     fold_no = 1
     scores = []
@@ -33,7 +106,8 @@ def run_single_training(
     model = model
     del keras
 
-    filepath = str(Path(working_dir) / f"best_model_folds_{fold_no}.keras")
+    checkpoint_name = _safe_model_name(model_name)
+    filepath = str(Path(working_dir) / f"best_{checkpoint_name}_single_fold_{fold_no}.keras")
     if os.path.exists(filepath):
         print("File exists")
     else:
@@ -141,6 +215,149 @@ def run_single_training(
     }
 
 
+def run_cross_validation(
+    model_builder,
+    fold_data,
+    working_dir=DEFAULT_WORKING_DIR,
+    sleep_seconds=90,
+    model_name="model",
+):
+    scores = []
+    hist = []
+
+    image_metric_lists = {
+        "accuracy": [],
+        "precision": [],
+        "recall": [],
+        "f1-score": [],
+    }
+    subject_metric_lists = {
+        "accuracy": [],
+        "precision": [],
+        "recall": [],
+        "f1-score": [],
+    }
+    fold_results = []
+
+    for fold_no, prepared_fold in fold_data:
+        (
+            train_series,
+            train_labels_t,
+            val_series,
+            val_labels_t,
+            val_subjects,
+            val_image_counts_per_subject,
+        ) = prepared_fold
+
+        tf.keras.backend.clear_session()
+        model = model_builder()
+
+        checkpoint_name = _safe_model_name(model_name)
+        filepath = str(Path(working_dir) / f"best_{checkpoint_name}_fold_{fold_no}.keras")
+        if os.path.exists(filepath):
+            print("File exists")
+        else:
+            print("File does not exist")
+
+        checkpoint = ModelCheckpoint(
+            filepath,
+            monitor="val_accuracy",
+            verbose=1,
+            save_best_only=True,
+            mode="max",
+            initial_value_threshold=None,
+        )
+
+        lr_scheduler = tf.keras.callbacks.ReduceLROnPlateau(
+            monitor="val_accuracy",
+            factor=0.1,
+            patience=6,
+            min_lr=1e-6,
+        )
+
+        early_stopping = EarlyStopping(
+            monitor="val_accuracy",
+            patience=6,
+            verbose=1,
+            mode="max",
+            baseline=None,
+            restore_best_weights=True,
+            start_from_epoch=20,
+        )
+
+        hist_temp = model.fit(
+            train_series,
+            train_labels_t,
+            validation_data=(val_series, val_labels_t),
+            epochs=60,
+            batch_size=8,
+            callbacks=[checkpoint, lr_scheduler, early_stopping],
+            verbose=1,
+        )
+        hist.append(hist_temp)
+
+        model = tf.keras.models.load_model(filepath)
+        score = model.evaluate(val_series, val_labels_t, verbose=1)
+        scores.append(score[1])
+
+        val_predictions = (model.predict(val_series) > 0.5).astype(int)
+        image_metrics = _image_level_metrics(val_labels_t, val_predictions)
+        print(
+            f"Fold {fold_no} image metrics: Accuracy {image_metrics['accuracy']:.4f}, "
+            f"Precision {image_metrics['precision']:.4f}, Recall {image_metrics['recall']:.4f}, "
+            f"F1 {image_metrics['f1']:.4f}"
+        )
+
+        image_metric_lists["accuracy"].append(image_metrics["accuracy"])
+        image_metric_lists["precision"].append(image_metrics["precision"])
+        image_metric_lists["recall"].append(image_metrics["recall"])
+        image_metric_lists["f1-score"].append(image_metrics["f1"])
+
+        subject_metrics, groundtruth_subjects, predicted_subjects = _subject_level_metrics(
+            model,
+            val_series,
+            val_subjects,
+            val_image_counts_per_subject,
+        )
+        print(
+            f"Fold {fold_no} subject metrics: Accuracy {subject_metrics['accuracy']:.4f}, "
+            f"Precision {subject_metrics['precision']:.4f}, Recall {subject_metrics['recall']:.4f}, "
+            f"F1 {subject_metrics['f1']:.4f}"
+        )
+
+        subject_metric_lists["accuracy"].append(subject_metrics["accuracy"])
+        subject_metric_lists["precision"].append(subject_metrics["precision"])
+        subject_metric_lists["recall"].append(subject_metrics["recall"])
+        subject_metric_lists["f1-score"].append(subject_metrics["f1"])
+
+        fold_results.append(
+            {
+                "fold": fold_no,
+                "score": score,
+                "image_metrics": image_metrics,
+                "subject_metrics": subject_metrics,
+                "groundtruth_subjects": groundtruth_subjects,
+                "predicted_subjects": predicted_subjects,
+            }
+        )
+
+        _plot_history(hist_temp.history, f"for fold {fold_no}")
+
+        if sleep_seconds:
+            time.sleep(sleep_seconds)
+
+    _print_metric_summary("image", image_metric_lists)
+    _print_metric_summary("subject", subject_metric_lists)
+
+    return {
+        "scores": scores,
+        "history": hist,
+        "fold_results": fold_results,
+        "image_metrics": image_metric_lists,
+        "subject_metrics": subject_metric_lists,
+    }
+
+
 def run_iterative_training(
     model,
     train_series,
@@ -154,6 +371,7 @@ def run_iterative_training(
     working_dir=DEFAULT_WORKING_DIR,
     iterations=5,
     sleep_seconds=90,
+    model_name="model",
 ):
     scores = []
     keras = tf.keras
@@ -171,7 +389,8 @@ def run_iterative_training(
     recall_sbj_list = []
 
     for iteration in range(iterations):
-        filepath = str(Path(working_dir) / f"best_model_folds_{iteration}.keras")
+        checkpoint_name = _safe_model_name(model_name)
+        filepath = str(Path(working_dir) / f"best_{checkpoint_name}_iteration_{iteration}.keras")
         if os.path.exists(filepath):
             print("File exists")
         else:

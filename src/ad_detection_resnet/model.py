@@ -1,116 +1,132 @@
-"""ResNet model definition from the notebook."""
+"""Model definitions for AD EEG time-series classification."""
 
 import tensorflow as tf
-from tensorflow.keras.initializers import HeNormal
 from tensorflow.keras.layers import (
     Add,
+    Activation,
+    AveragePooling1D,
     BatchNormalization,
+    Concatenate,
     Conv1D,
     Dense,
     Dropout,
     GlobalAveragePooling1D,
     Input,
-    Multiply,
-    ReLU,
-    Reshape,
+    MaxPooling1D,
+    SeparableConv1D,
 )
 from tensorflow.keras.models import Model
 
 from .config import DEFAULT_INPUT_SHAPE, DEFAULT_NUM_CLASSES
 
-
-def se_block(input_tensor, reduction_ratio=8):
-    """Squeeze-and-Excitation block to add attention."""
-    filters = input_tensor.shape[-1]
-    se_shape = (1, filters)
-
-    se = GlobalAveragePooling1D()(input_tensor)
-    se = Reshape(se_shape)(se)
-
-    se = Dense(filters // reduction_ratio, activation="relu", use_bias=False)(se)
-    se = Dense(filters, activation="sigmoid", use_bias=False)(se)
-
-    x = Multiply()([input_tensor, se])
-    return x
+SUPPORTED_MODEL_NAMES = ("eegnet", "inceptiontime")
 
 
-def residual_block(x, filters, kernel_size=3, stride=1, dilation_rate=1):
-    """A residual block with SE block and dilated convolution for attention."""
-    shortcut = x
+def normalize_model_name(model_name):
+    normalized = str(model_name).lower().replace("-", "").replace("_", "")
 
-    x = Conv1D(
-        filters,
-        kernel_size=kernel_size,
-        strides=stride,
-        padding="same",
-        dilation_rate=dilation_rate,
-        kernel_initializer="he_normal",
-    )(x)
-    x = BatchNormalization()(x)
-    x = Dropout(0.2)(x)
-    x = ReLU()(x)
+    if normalized in {"eegnet", "eeg"}:
+        return "eegnet"
+    if normalized in {"inceptiontime", "inception"}:
+        return "inceptiontime"
 
-    x = Conv1D(
-        filters,
-        kernel_size=kernel_size,
-        strides=1,
-        padding="same",
-        dilation_rate=dilation_rate,
-        kernel_initializer="he_normal",
-    )(x)
-    x = BatchNormalization()(x)
-    x = Dropout(0.2)(x)
-
-    if x.shape[-1] != shortcut.shape[-1] or stride != 1:
-        shortcut = Conv1D(
-            filters,
-            kernel_size=1,
-            strides=stride,
-            padding="same",
-            kernel_initializer="he_normal",
-        )(shortcut)
-        shortcut = BatchNormalization()(shortcut)
-
-    x = Add()([x, shortcut])
-    x = ReLU()(x)
-
-    x = se_block(x)
-
-    return x
+    supported = ", ".join(SUPPORTED_MODEL_NAMES)
+    raise ValueError(f"Unknown model '{model_name}'. Expected one of: {supported}.")
 
 
-def build_resnet(input_shape, num_classes):
+def _binary_output(x, num_classes):
+    return Dense(num_classes, activation="sigmoid")(x)
+
+
+def build_eegnet(input_shape=DEFAULT_INPUT_SHAPE, num_classes=DEFAULT_NUM_CLASSES):
+    """Build an EEGNet-style 1D model for exported single-channel EEG segments."""
     inputs = Input(shape=input_shape)
 
-    x = Conv1D(64, kernel_size=3, strides=1, padding="same", kernel_initializer=HeNormal())(inputs)
+    x = Conv1D(8, kernel_size=64, padding="same", use_bias=False)(inputs)
     x = BatchNormalization()(x)
-    x = Dropout(0.7)(x)
-    x = ReLU()(x)
+    x = Conv1D(16, kernel_size=1, padding="same", use_bias=False)(x)
+    x = BatchNormalization()(x)
+    x = Activation("elu")(x)
+    x = AveragePooling1D(pool_size=4)(x)
+    x = Dropout(0.5)(x)
 
-    x = residual_block(x, 64, stride=1, dilation_rate=1)
-    x = residual_block(x, 128, stride=1, dilation_rate=2)
-    x = residual_block(x, 256, stride=1, dilation_rate=4)
-    x = residual_block(x, 512, stride=1, dilation_rate=8)
-    x = residual_block(x, 1024, stride=1, dilation_rate=16)
+    x = SeparableConv1D(16, kernel_size=16, padding="same", use_bias=False)(x)
+    x = BatchNormalization()(x)
+    x = Activation("elu")(x)
+    x = AveragePooling1D(pool_size=8)(x)
+    x = Dropout(0.5)(x)
 
     x = GlobalAveragePooling1D()(x)
-    x = Dense(1024, activation="relu", kernel_initializer=HeNormal())(x)
-    x = Dropout(0.1)(x)
-    x = Dense(512, activation="relu", kernel_initializer=HeNormal())(x)
-    x = Dropout(0.1)(x)
+    outputs = _binary_output(x, num_classes)
 
-    outputs = Dense(num_classes, activation="sigmoid")(x)
-
-    model = Model(inputs=inputs, outputs=outputs)
-
-    return model
+    return Model(inputs=inputs, outputs=outputs, name="EEGNet")
 
 
-def build_compiled_resnet(input_shape=DEFAULT_INPUT_SHAPE, num_classes=DEFAULT_NUM_CLASSES):
-    model = build_resnet(input_shape, num_classes)
+def inception_module(x, filters=32, kernel_sizes=(40, 20, 10), bottleneck_size=32):
+    bottleneck = Conv1D(bottleneck_size, kernel_size=1, padding="same", use_bias=False)(x)
 
-    optimizer = tf.keras.optimizers.Adam(learning_rate=0.007)
+    branches = [
+        Conv1D(filters, kernel_size=kernel_size, padding="same", use_bias=False)(bottleneck)
+        for kernel_size in kernel_sizes
+    ]
 
+    pooled = MaxPooling1D(pool_size=3, strides=1, padding="same")(x)
+    pooled = Conv1D(filters, kernel_size=1, padding="same", use_bias=False)(pooled)
+
+    x = Concatenate()(branches + [pooled])
+    x = BatchNormalization()(x)
+    x = Activation("relu")(x)
+    return x
+
+
+def shortcut_layer(shortcut, x):
+    shortcut = Conv1D(int(x.shape[-1]), kernel_size=1, padding="same", use_bias=False)(shortcut)
+    shortcut = BatchNormalization()(shortcut)
+
+    x = Add()([shortcut, x])
+    x = Activation("relu")(x)
+    return x
+
+
+def build_inceptiontime(
+    input_shape=DEFAULT_INPUT_SHAPE,
+    num_classes=DEFAULT_NUM_CLASSES,
+    depth=6,
+    filters=32,
+):
+    inputs = Input(shape=input_shape)
+    x = inputs
+    residual = inputs
+
+    for module_idx in range(depth):
+        x = inception_module(x, filters=filters)
+
+        if module_idx % 3 == 2:
+            x = shortcut_layer(residual, x)
+            residual = x
+
+    x = GlobalAveragePooling1D()(x)
+    outputs = _binary_output(x, num_classes)
+
+    return Model(inputs=inputs, outputs=outputs, name="InceptionTime")
+
+
+def build_compiled_model(
+    model_name="eegnet",
+    input_shape=DEFAULT_INPUT_SHAPE,
+    num_classes=DEFAULT_NUM_CLASSES,
+    learning_rate=0.001,
+):
+    model_name = normalize_model_name(model_name)
+
+    if model_name == "eegnet":
+        model = build_eegnet(input_shape=input_shape, num_classes=num_classes)
+    elif model_name == "inceptiontime":
+        model = build_inceptiontime(input_shape=input_shape, num_classes=num_classes)
+    else:
+        raise AssertionError(f"Unsupported normalized model name: {model_name}")
+
+    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
     model.compile(optimizer=optimizer, loss="binary_crossentropy", metrics=["accuracy"])
     model.summary()
 

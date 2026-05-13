@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ad-detection-resnet"
 version = "0.1.0"
-description = "Package version of the Alzheimer EEG ResNet notebook."
+description = "Package version of the Alzheimer EEG notebook workflow."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
