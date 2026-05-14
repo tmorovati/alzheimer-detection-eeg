@@ -45,22 +45,28 @@ def collect_subject_folders_and_labels(data_dir=DEFAULT_DATA_DIR):
     )
 
     subject_folders, labels = [], []
+    skipped_subjects = []
 
     for folder_name in folders:
         subject_num = extract_numeric_part(folder_name)
         subject_folder = os.path.join(data_dir, folder_name)
-        subject_folders.append(subject_folder)
 
         if subject_num <= 36:
+            subject_folders.append(subject_folder)
             labels.append(0)
         elif 37 <= subject_num <= 65:
+            subject_folders.append(subject_folder)
             labels.append(1)
+        else:
+            skipped_subjects.append(subject_num)
 
     subject_folders = np.array(subject_folders)
     labels = np.array(labels)
 
     print("Subject Folders:", subject_folders)
     print("Labels:", labels)
+    if skipped_subjects:
+        print("Skipped unlabeled subjects:", skipped_subjects)
 
     return subject_folders, labels
 

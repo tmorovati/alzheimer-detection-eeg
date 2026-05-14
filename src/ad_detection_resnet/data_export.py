@@ -63,10 +63,14 @@ def save_time_series(eeg_data, epoch_num, working_dir=DEFAULT_WORKING_DIR, lobes
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
 
+        segment_count = min(10, subject_data.shape[2])
+        if segment_count < 10:
+            print(f"Subject {subject_idx + 1} has only {segment_count} segments; saving available segments.")
+
         for channel_idx in range(subject_data.shape[1]):
             channel_data = subject_data[:, channel_idx, :]
 
-            for seg_idx in range(10):
+            for seg_idx in range(segment_count):
                 segment_data = channel_data[:, seg_idx]
 
                 save_path = os.path.join(
