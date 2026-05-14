@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 from scipy.io import loadmat
 
-from .config import DEFAULT_MAT_PATH, DEFAULT_WORKING_DIR, LOBES
+from .config import DEFAULT_EEG_KEY, DEFAULT_EPOCH_KEY, DEFAULT_MAT_PATH, DEFAULT_WORKING_DIR, LOBES
 
 
 def load_eeg_mat(mat_path=DEFAULT_MAT_PATH):
@@ -14,6 +14,26 @@ def load_eeg_mat(mat_path=DEFAULT_MAT_PATH):
     data = loadmat(mat_path)
     print("done")
     return data
+
+
+def get_mat_value(data, key, value_name):
+    """Read a named MATLAB variable and show available variables if missing."""
+    try:
+        return data[key]
+    except KeyError as exc:
+        available_keys = sorted(k for k in data if not k.startswith("__"))
+        raise KeyError(
+            f"Could not find {value_name} key {key!r} in the .mat file. "
+            f"Available keys are: {available_keys}"
+        ) from exc
+
+
+def get_eeg_data(data, eeg_key=DEFAULT_EEG_KEY):
+    return get_mat_value(data, eeg_key, "EEG data")
+
+
+def get_epoch_num(data, epoch_key=DEFAULT_EPOCH_KEY):
+    return get_mat_value(data, epoch_key, "epoch number")
 
 
 def save_time_series(eeg_data, epoch_num, working_dir=DEFAULT_WORKING_DIR, lobes=LOBES):

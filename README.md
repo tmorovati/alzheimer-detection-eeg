@@ -46,9 +46,21 @@ ad-detection-resnet --mode all
 ad-detection-resnet --mode iterations
 ad-detection-resnet --skip-export
 ad-detection-resnet --mat-path /path/to/EEG_full_4D_1Hz.mat
+ad-detection-resnet --eeg-key EEG --epoch-key epoch_num
 ad-detection-resnet --working-dir /kaggle/working
 ad-detection-resnet --data-dir /kaggle/working/Alzheimer/Time_series/Parietal
 ```
+
+If your `.mat` file uses different variable names, inspect them first:
+
+```python
+from scipy.io import loadmat
+
+data = loadmat("/path/to/EEG_full_4D_1Hz.mat")
+[(key, getattr(value, "shape", None)) for key, value in data.items() if not key.startswith("__")]
+```
+
+Then pass the matching names with `--eeg-key` and `--epoch-key`.
 
 ## Validation
 

@@ -2,7 +2,7 @@
 
 import argparse
 
-from .config import DEFAULT_DATA_DIR, DEFAULT_MAT_PATH, DEFAULT_WORKING_DIR
+from .config import DEFAULT_DATA_DIR, DEFAULT_EEG_KEY, DEFAULT_EPOCH_KEY, DEFAULT_MAT_PATH, DEFAULT_WORKING_DIR
 
 
 def build_parser():
@@ -14,6 +14,8 @@ def build_parser():
         help="Training section to run.",
     )
     parser.add_argument("--mat-path", default=str(DEFAULT_MAT_PATH), help="Path to EEG_full_4D_1Hz.mat.")
+    parser.add_argument("--eeg-key", default=DEFAULT_EEG_KEY, help="MATLAB variable name containing EEG data.")
+    parser.add_argument("--epoch-key", default=DEFAULT_EPOCH_KEY, help="MATLAB variable name containing epoch counts.")
     parser.add_argument("--working-dir", default=str(DEFAULT_WORKING_DIR), help="Directory used for generated outputs.")
     parser.add_argument("--data-dir", default=str(DEFAULT_DATA_DIR), help="Directory containing lobe subject folders.")
     parser.add_argument("--skip-export", action="store_true", help="Use already-exported time-series files.")
@@ -46,6 +48,8 @@ def main(argv=None):
         iterations=args.iterations,
         sleep_seconds=args.sleep_seconds,
         model_name=args.model,
+        eeg_key=args.eeg_key,
+        epoch_key=args.epoch_key,
     )
 
 
