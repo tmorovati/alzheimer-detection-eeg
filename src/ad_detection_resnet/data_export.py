@@ -47,6 +47,21 @@ def iter_subject_arrays(eeg_data):
         yield eeg_data[subject_idx, :, :, :]
 
 
+def _epoch_count_for_subject(epoch_num, subject_idx, available_segments):
+    if epoch_num is None:
+        return available_segments
+
+    epoch_counts = np.asarray(epoch_num).reshape(-1)
+    if subject_idx >= len(epoch_counts):
+        return available_segments
+
+    epoch_count = int(epoch_counts[subject_idx])
+    if epoch_count <= 0:
+        return available_segments
+
+    return min(epoch_count, available_segments)
+
+
 def save_time_series(eeg_data, epoch_num, working_dir=DEFAULT_WORKING_DIR, lobes=LOBES):
     """Save all subject/channel/segment arrays into the notebook folder layout."""
     working_dir = Path(working_dir)
@@ -63,9 +78,7 @@ def save_time_series(eeg_data, epoch_num, working_dir=DEFAULT_WORKING_DIR, lobes
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
 
-        segment_count = min(10, subject_data.shape[2])
-        if segment_count < 10:
-            print(f"Subject {subject_idx + 1} has only {segment_count} segments; saving available segments.")
+        segment_count = _epoch_count_for_subject(epoch_num, subject_idx, subject_data.shape[2])
 
         for channel_idx in range(subject_data.shape[1]):
             channel_data = subject_data[:, channel_idx, :]

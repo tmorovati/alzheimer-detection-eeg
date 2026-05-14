@@ -30,24 +30,28 @@ def _subject_level_metrics(model, series, subjects, image_counts_per_subject):
     start_idx = 0
     predicted_subjects = []
     groundtruth_subjects = []
+    subject_probabilities = []
 
     for subject_folder, num_images in zip(subjects, image_counts_per_subject):
         end_idx = start_idx + num_images
         subject_images = series[start_idx:end_idx]
-        subject_predictions = (model.predict(subject_images, verbose=0) > 0.5).astype(int).reshape(-1)
+        subject_probabilities_t = model.predict(subject_images, verbose=0).reshape(-1)
+        subject_predictions = (subject_probabilities_t > 0.5).astype(int)
         ad_count = int(np.sum(subject_predictions == 0))
         hc_count = int(np.sum(subject_predictions == 1))
+        mean_hc_probability = float(np.mean(subject_probabilities_t))
         subject_num = extract_numeric_part(os.path.basename(subject_folder))
 
         print(f"Subject {subject_num} ({subject_folder}):")
-        print(f"AD count: {ad_count}, HC count: {hc_count}")
+        print(f"AD count: {ad_count}, HC count: {hc_count}, mean HC probability: {mean_hc_probability:.4f}")
 
         groundtruth_subjects.append(0 if subject_num < 37 else 1)
-        predicted_subjects.append(0 if ad_count > hc_count else 1)
+        predicted_subjects.append(1 if mean_hc_probability >= 0.5 else 0)
+        subject_probabilities.append(mean_hc_probability)
         start_idx = end_idx
 
     metrics = _image_level_metrics(groundtruth_subjects, predicted_subjects)
-    return metrics, groundtruth_subjects, predicted_subjects
+    return metrics, groundtruth_subjects, predicted_subjects, subject_probabilities
 
 
 def _plot_history(history, title_suffix):
@@ -245,8 +249,10 @@ def run_cross_validation(
             train_labels_t,
             val_series,
             val_labels_t,
-            val_subjects,
-            val_image_counts_per_subject,
+            test_series,
+            test_labels_t,
+            test_subjects,
+            test_image_counts_per_subject,
         ) = prepared_fold
 
         tf.keras.backend.clear_session()
@@ -297,13 +303,13 @@ def run_cross_validation(
         hist.append(hist_temp)
 
         model = tf.keras.models.load_model(filepath)
-        score = model.evaluate(val_series, val_labels_t, verbose=1)
+        score = model.evaluate(test_series, test_labels_t, verbose=1)
         scores.append(score[1])
 
-        val_predictions = (model.predict(val_series) > 0.5).astype(int)
-        image_metrics = _image_level_metrics(val_labels_t, val_predictions)
+        test_predictions = (model.predict(test_series) > 0.5).astype(int)
+        image_metrics = _image_level_metrics(test_labels_t, test_predictions)
         print(
-            f"Fold {fold_no} image metrics: Accuracy {image_metrics['accuracy']:.4f}, "
+            f"Fold {fold_no} held-out image metrics: Accuracy {image_metrics['accuracy']:.4f}, "
             f"Precision {image_metrics['precision']:.4f}, Recall {image_metrics['recall']:.4f}, "
             f"F1 {image_metrics['f1']:.4f}"
         )
@@ -313,14 +319,14 @@ def run_cross_validation(
         image_metric_lists["recall"].append(image_metrics["recall"])
         image_metric_lists["f1-score"].append(image_metrics["f1"])
 
-        subject_metrics, groundtruth_subjects, predicted_subjects = _subject_level_metrics(
+        subject_metrics, groundtruth_subjects, predicted_subjects, subject_probabilities = _subject_level_metrics(
             model,
-            val_series,
-            val_subjects,
-            val_image_counts_per_subject,
+            test_series,
+            test_subjects,
+            test_image_counts_per_subject,
         )
         print(
-            f"Fold {fold_no} subject metrics: Accuracy {subject_metrics['accuracy']:.4f}, "
+            f"Fold {fold_no} held-out subject metrics: Accuracy {subject_metrics['accuracy']:.4f}, "
             f"Precision {subject_metrics['precision']:.4f}, Recall {subject_metrics['recall']:.4f}, "
             f"F1 {subject_metrics['f1']:.4f}"
         )
@@ -338,6 +344,7 @@ def run_cross_validation(
                 "subject_metrics": subject_metrics,
                 "groundtruth_subjects": groundtruth_subjects,
                 "predicted_subjects": predicted_subjects,
+                "subject_probabilities": subject_probabilities,
             }
         )
 

@@ -3,7 +3,7 @@
 from pathlib import Path
 
 LOBES = {
-    "Frontal": [1, 2, 3, 4, 11, 12, 17],
+    "Frontal": [3, 4, 11, 12, 17],
     "Temporal": [13, 14, 15, 16],
     "Parietal": [7, 8, 19],
     "Central": [5, 6, 18],

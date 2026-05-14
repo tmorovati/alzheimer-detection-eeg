@@ -109,7 +109,12 @@ def _image_counts_per_subject(subjects):
     return [len(os.listdir(folder)) for folder in subjects]
 
 
-def load_subject_split(subject_folders, labels, train_subject_nums, val_subject_nums):
+def _fold_subject_numbers(fold_no):
+    fold = MENTOR_FOLD_VAL_SUBJECTS[fold_no]
+    return sorted(fold["ad"] + fold["hc"])
+
+
+def load_subject_split(subject_folders, labels, train_subject_nums, val_subject_nums, test_subject_nums=None):
     subjects = _subjects_by_number(subject_folders, labels)
 
     train_subjects, train_labels = _select_subjects(subjects, train_subject_nums)
@@ -118,6 +123,21 @@ def load_subject_split(subject_folders, labels, train_subject_nums, val_subject_
     train_images, train_labels_t = load_series_and_labels(train_subjects, train_labels)
     val_images, val_labels_t = load_series_and_labels(val_subjects, val_labels)
     val_image_counts_per_subject = _image_counts_per_subject(val_subjects)
+
+    if test_subject_nums is not None:
+        test_subjects, test_labels = _select_subjects(subjects, test_subject_nums)
+        test_images, test_labels_t = load_series_and_labels(test_subjects, test_labels)
+        test_image_counts_per_subject = _image_counts_per_subject(test_subjects)
+        return (
+            train_images,
+            train_labels_t,
+            val_images,
+            val_labels_t,
+            test_images,
+            test_labels_t,
+            test_subjects,
+            test_image_counts_per_subject,
+        )
 
     return (
         train_images,
@@ -130,25 +150,29 @@ def load_subject_split(subject_folders, labels, train_subject_nums, val_subject_
 
 
 def load_cross_validation_fold(subject_folders, labels, fold_no):
-    """Load one mentor-provided subject-level stratified K-fold split."""
+    """Load one leakage-resistant subject-level cross-validation split."""
     if fold_no not in MENTOR_FOLD_VAL_SUBJECTS:
         raise ValueError(f"Unknown fold {fold_no}. Expected one of {sorted(MENTOR_FOLD_VAL_SUBJECTS)}.")
 
     subjects = _subjects_by_number(subject_folders, labels)
-    all_subject_nums = sorted(subjects)
-    fold = MENTOR_FOLD_VAL_SUBJECTS[fold_no]
-    val_subject_nums = sorted(fold["ad"] + fold["hc"])
-    train_subject_nums = [subject_num for subject_num in all_subject_nums if subject_num not in val_subject_nums]
+    all_subject_nums = set(subjects)
+    validation_fold_no = (fold_no % len(MENTOR_FOLD_VAL_SUBJECTS)) + 1
+    test_subject_nums = _fold_subject_numbers(fold_no)
+    val_subject_nums = _fold_subject_numbers(validation_fold_no)
+    train_subject_nums = sorted(all_subject_nums - set(test_subject_nums) - set(val_subject_nums))
 
     print(f"\nFold {fold_no}:")
-    print(f"  Train subjects: {len(train_subject_nums)}")
-    print(f"  Val subjects:   {len(val_subject_nums)}")
-    print(f"  VAL - AD: {fold['ad']}")
-    print(f"  VAL - HC: {fold['hc']}")
+    print(f"  Train subjects:      {len(train_subject_nums)}")
+    print(f"  Internal val fold:   {validation_fold_no}")
+    print(f"  Internal val subjects: {len(val_subject_nums)}")
+    print(f"  Held-out test subjects: {len(test_subject_nums)}")
+    print(f"  TEST - AD: {MENTOR_FOLD_VAL_SUBJECTS[fold_no]['ad']}")
+    print(f"  TEST - HC: {MENTOR_FOLD_VAL_SUBJECTS[fold_no]['hc']}")
 
-    prepared = load_subject_split(subject_folders, labels, train_subject_nums, val_subject_nums)
+    prepared = load_subject_split(subject_folders, labels, train_subject_nums, val_subject_nums, test_subject_nums)
     print(f"  Train images: {len(prepared[0])}")
-    print(f"  Val images:   {len(prepared[2])}")
+    print(f"  Internal val images: {len(prepared[2])}")
+    print(f"  Held-out test images: {len(prepared[4])}")
 
     return prepared
 
