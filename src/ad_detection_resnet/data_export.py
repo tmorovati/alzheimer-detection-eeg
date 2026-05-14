@@ -36,12 +36,28 @@ def get_epoch_num(data, epoch_key=DEFAULT_EPOCH_KEY):
     return get_mat_value(data, epoch_key, "epoch number")
 
 
+def iter_subject_arrays(eeg_data):
+    """Yield one subject array from either a 4D array or MATLAB cell/object array."""
+    if isinstance(eeg_data, np.ndarray) and eeg_data.dtype == object:
+        for subject_data in eeg_data.ravel():
+            yield np.asarray(subject_data)
+        return
+
+    for subject_idx in range(eeg_data.shape[0]):
+        yield eeg_data[subject_idx, :, :, :]
+
+
 def save_time_series(eeg_data, epoch_num, working_dir=DEFAULT_WORKING_DIR, lobes=LOBES):
     """Save all subject/channel/segment arrays into the notebook folder layout."""
     working_dir = Path(working_dir)
 
-    for subject_idx in range(eeg_data.shape[0]):
-        subject_data = eeg_data[subject_idx, :, :, :]
+    for subject_idx, subject_data in enumerate(iter_subject_arrays(eeg_data)):
+        if subject_data.ndim != 3:
+            raise ValueError(
+                "Each subject EEG array must have 3 dimensions: "
+                f"time x channels x segments. Got shape {subject_data.shape} "
+                f"for subject {subject_idx + 1}."
+            )
 
         save_dir = os.path.join(working_dir, "Alzheimer", "Time_series")
         if not os.path.exists(save_dir):

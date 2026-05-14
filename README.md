@@ -47,6 +47,7 @@ ad-detection-resnet --mode iterations
 ad-detection-resnet --skip-export
 ad-detection-resnet --mat-path /path/to/EEG_full_4D_1Hz.mat
 ad-detection-resnet --eeg-key EEG --epoch-key epoch_num
+ad-detection-resnet --eeg-key EEG_Class --epoch-key epoch_num
 ad-detection-resnet --working-dir /kaggle/working
 ad-detection-resnet --data-dir /kaggle/working/Alzheimer/Time_series/Parietal
 ```
@@ -61,6 +62,9 @@ data = loadmat("/path/to/EEG_full_4D_1Hz.mat")
 ```
 
 Then pass the matching names with `--eeg-key` and `--epoch-key`.
+The exporter supports both a direct 4D EEG array and a MATLAB cell/object array
+such as `EEG_Class`, where each subject is stored as its own time x channels x
+segments array.
 
 ## Validation
 
