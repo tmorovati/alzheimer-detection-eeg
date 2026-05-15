@@ -25,6 +25,12 @@ def build_parser():
         default="eegnet",
         help="Model architecture to train.",
     )
+    parser.add_argument(
+        "--validation-protocol",
+        choices=["paper", "strict"],
+        default="paper",
+        help="Use co-author-aligned 52/13 stratified folds or stricter 39/13/13 folds.",
+    )
     parser.add_argument("--iterations", type=int, default=5, help="Number of iterative training runs.")
     parser.add_argument(
         "--sleep-seconds",
@@ -50,6 +56,7 @@ def main(argv=None):
         model_name=args.model,
         eeg_key=args.eeg_key,
         epoch_key=args.epoch_key,
+        validation_protocol=args.validation_protocol,
     )
 
 

@@ -45,6 +45,8 @@ ad-detection-resnet --mode single
 ad-detection-resnet --mode all
 ad-detection-resnet --mode iterations
 ad-detection-resnet --skip-export
+ad-detection-resnet --validation-protocol paper
+ad-detection-resnet --validation-protocol strict
 ad-detection-resnet --mat-path /path/to/EEG_full_4D_1Hz.mat
 ad-detection-resnet --eeg-key EEG --epoch-key epoch_num
 ad-detection-resnet --eeg-key EEG_Class --epoch-key epoch_num
@@ -68,11 +70,20 @@ segments array.
 
 ## Validation
 
-The default `crossval` mode uses fixed subject-level folds. In each outer fold,
-one fold is held out for final testing and the next fold is used only for
-internal validation, early stopping, learning-rate scheduling, and checkpoint
-selection. The reported fold metrics are computed on the held-out test subjects,
-not on the internal validation subjects.
+The default `crossval` mode uses the co-author-aligned subject-level stratified
+5-fold protocol. In each fold, 52 subjects are used for training and 13 subjects
+are used as the validation/evaluation fold. This matches the fold lists used by
+the other approaches in the paper.
+
+An optional stricter protocol is also available:
+
+```bash
+ad-detection-resnet --validation-protocol strict
+```
+
+In strict mode, one fold is held out for final testing and the next fold is used
+only for internal validation, early stopping, learning-rate scheduling, and
+checkpoint selection.
 
 The AD-vs-HC setup uses subjects 1-65:
 

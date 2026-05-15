@@ -58,6 +58,7 @@ def run_pipeline(
     model_name="eegnet",
     eeg_key=DEFAULT_EEG_KEY,
     epoch_key=DEFAULT_EPOCH_KEY,
+    validation_protocol="paper",
 ):
     _, subject_folders, labels = prepare_subjects(
         mat_path=mat_path,
@@ -125,7 +126,7 @@ def run_pipeline(
 
         results["crossval"] = run_cross_validation(
             model_builder,
-            iter_cross_validation_folds(subject_folders, labels),
+            iter_cross_validation_folds(subject_folders, labels, validation_protocol=validation_protocol),
             working_dir=working_dir,
             sleep_seconds=90 if sleep_seconds is None else sleep_seconds,
             model_name=model_name,

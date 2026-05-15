@@ -149,38 +149,61 @@ def load_subject_split(subject_folders, labels, train_subject_nums, val_subject_
     )
 
 
-def load_cross_validation_fold(subject_folders, labels, fold_no):
-    """Load one leakage-resistant subject-level cross-validation split."""
+def load_cross_validation_fold(subject_folders, labels, fold_no, validation_protocol="paper"):
+    """Load one subject-level cross-validation split."""
     if fold_no not in MENTOR_FOLD_VAL_SUBJECTS:
         raise ValueError(f"Unknown fold {fold_no}. Expected one of {sorted(MENTOR_FOLD_VAL_SUBJECTS)}.")
+    if validation_protocol not in {"paper", "strict"}:
+        raise ValueError("validation_protocol must be one of: paper, strict")
 
     subjects = _subjects_by_number(subject_folders, labels)
     all_subject_nums = set(subjects)
-    validation_fold_no = (fold_no % len(MENTOR_FOLD_VAL_SUBJECTS)) + 1
-    test_subject_nums = _fold_subject_numbers(fold_no)
-    val_subject_nums = _fold_subject_numbers(validation_fold_no)
-    train_subject_nums = sorted(all_subject_nums - set(test_subject_nums) - set(val_subject_nums))
 
     print(f"\nFold {fold_no}:")
-    print(f"  Train subjects:      {len(train_subject_nums)}")
-    print(f"  Internal val fold:   {validation_fold_no}")
-    print(f"  Internal val subjects: {len(val_subject_nums)}")
-    print(f"  Held-out test subjects: {len(test_subject_nums)}")
-    print(f"  TEST - AD: {MENTOR_FOLD_VAL_SUBJECTS[fold_no]['ad']}")
-    print(f"  TEST - HC: {MENTOR_FOLD_VAL_SUBJECTS[fold_no]['hc']}")
+    if validation_protocol == "paper":
+        val_subject_nums = _fold_subject_numbers(fold_no)
+        train_subject_nums = sorted(all_subject_nums - set(val_subject_nums))
 
-    prepared = load_subject_split(subject_folders, labels, train_subject_nums, val_subject_nums, test_subject_nums)
-    print(f"  Train images: {len(prepared[0])}")
-    print(f"  Internal val images: {len(prepared[2])}")
-    print(f"  Held-out test images: {len(prepared[4])}")
+        print("  Protocol: subject-level stratified 5-fold")
+        print(f"  Train subjects: {len(train_subject_nums)}")
+        print(f"  Val subjects:   {len(val_subject_nums)}")
+        print(f"  VAL - AD: {MENTOR_FOLD_VAL_SUBJECTS[fold_no]['ad']}")
+        print(f"  VAL - HC: {MENTOR_FOLD_VAL_SUBJECTS[fold_no]['hc']}")
+
+        prepared = load_subject_split(subject_folders, labels, train_subject_nums, val_subject_nums, val_subject_nums)
+        print(f"  Train images: {len(prepared[0])}")
+        print(f"  Val images:   {len(prepared[2])}")
+    else:
+        validation_fold_no = (fold_no % len(MENTOR_FOLD_VAL_SUBJECTS)) + 1
+        test_subject_nums = _fold_subject_numbers(fold_no)
+        val_subject_nums = _fold_subject_numbers(validation_fold_no)
+        train_subject_nums = sorted(all_subject_nums - set(test_subject_nums) - set(val_subject_nums))
+
+        print("  Protocol: strict train/internal-val/held-out-test")
+        print(f"  Train subjects:      {len(train_subject_nums)}")
+        print(f"  Internal val fold:   {validation_fold_no}")
+        print(f"  Internal val subjects: {len(val_subject_nums)}")
+        print(f"  Held-out test subjects: {len(test_subject_nums)}")
+        print(f"  TEST - AD: {MENTOR_FOLD_VAL_SUBJECTS[fold_no]['ad']}")
+        print(f"  TEST - HC: {MENTOR_FOLD_VAL_SUBJECTS[fold_no]['hc']}")
+
+        prepared = load_subject_split(subject_folders, labels, train_subject_nums, val_subject_nums, test_subject_nums)
+        print(f"  Train images: {len(prepared[0])}")
+        print(f"  Internal val images: {len(prepared[2])}")
+        print(f"  Held-out test images: {len(prepared[4])}")
 
     return prepared
 
 
-def iter_cross_validation_folds(subject_folders, labels, fold_numbers=None):
+def iter_cross_validation_folds(subject_folders, labels, fold_numbers=None, validation_protocol="paper"):
     fold_numbers = sorted(MENTOR_FOLD_VAL_SUBJECTS) if fold_numbers is None else fold_numbers
     for fold_no in fold_numbers:
-        yield fold_no, load_cross_validation_fold(subject_folders, labels, fold_no)
+        yield fold_no, load_cross_validation_fold(
+            subject_folders,
+            labels,
+            fold_no,
+            validation_protocol=validation_protocol,
+        )
 
 
 def load_and_preprocess_data(subject_folders, labels):
